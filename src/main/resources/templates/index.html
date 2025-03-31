@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .column {
+            flex: 1;
+            min-width: 300px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border-radius: 5px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input[type="text"], input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        button {
+            padding: 10px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #45a049;
+        }
+
+        .alert {
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            background-color: #d4edda;
+            color: #155724;
+        }
+
+        .metrics {
+            background-color: #e9f7fd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+
+        .metric-value {
+            font-weight: bold;
+            color: #0066cc;
+        }
+
+        .connection-status {
+            margin-top: 10px;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+<div th:if="${message}" class="alert" th:text="${message}"></div>
+
+<div class="container">
+    <div class="column">
+        <h2>File Upload</h2>
+        <form th:action="@{/upload}" method="post" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="file">Select File:</label>
+                <input type="file" id="file" name="file" required/>
+            </div>
+            <button type="submit">Upload</button>
+        </form>
+
+        <div class="metrics">
+            <h3>System Metrics</h3>
+            <div class="form-group">
+                <label>Current Heap Size:</label>
+                <span id="heapSize" class="metric-value">Loading...</span>
+            </div>
+            <div class="form-group">
+                <label>Avg response time:</label>
+                <span id="avgResponseTime" class="metric-value">Loading...</span>
+            </div>
+            <div id="connectionStatus" class="connection-status">Connecting...</div>
+        </div>
+    </div>
+
+    <div class="column">
+        <h2>Application Properties</h2>
+        <form th:action="@{/updateProperties}" method="post">
+            <div class="form-group">
+                <label for="sendInterval">Send Interval:</label>
+                <input type="text" id="sendInterval" name="sendInterval" th:value="${sendInterval}"/>
+            </div>
+            <div class="form-group">
+                <label for="sendSize">Send Size:</label>
+                <input type="text" id="sendSize" name="sendSize" th:value="${sendSize}"/>
+            </div>
+            <div class="form-group">
+                <label for="fileSizeLimit">File Size Limit:</label>
+                <input type="text" id="fileSizeLimit" name="fileSizeLimit" th:value="${fileSizeLimit}"/>
+            </div>
+            <div class="form-group">
+                <label for="sizeListenerEnabled">Size Listener Enabled:</label>
+                <select id="sizeListenerEnabled" name="sizeListenerEnabled" class="form-control">
+                    <option value="true" th:selected="${sizeListenerEnabled == true}">Yes</option>
+                    <option value="false" th:selected="${sizeListenerEnabled == false}">No</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="loggingLevel">Logging Level:</label>
+                <select id="loggingLevel" name="loggingLevel" class="form-control">
+                    <option value="TRACE" th:selected="${loggingLevelString == 'TRACE'}">TRACE</option>
+                    <option value="DEBUG" th:selected="${loggingLevelString == 'DEBUG'}">DEBUG</option>
+                    <option value="INFO" th:selected="${loggingLevelString == 'INFO'}">INFO</option>
+                    <option value="WARN" th:selected="${loggingLevelString == 'WARN'}">WARN</option>
+                    <option value="ERROR" th:selected="${loggingLevelString == 'ERROR'}">ERROR</option>
+                    <option value="FATAL" th:selected="${loggingLevelString == 'FATAL'}">FATAL</option>
+                    <option value="OFF" th:selected="${loggingLevelString == 'OFF'}">OFF</option>
+                </select>
+            </div>
+            <button type="submit">Update Properties</button>
+        </form>
+    </div>
+</div>
+
+<script th:inline="javascript">
+    let socket;
+
+    function connectWebSocket() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const socketUrl = protocol + '//' + window.location.host + '/metrics';
+
+        document.getElementById('connectionStatus').textContent = 'Connecting...';
+
+        socket = new WebSocket(socketUrl);
+
+        socket.onopen = function() {
+            document.getElementById('connectionStatus').textContent = 'Connected';
+        };
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            if (data.heapSize !== undefined) {
+                document.getElementById('heapSize').textContent = formatBytes(data.heapSize);
+            }
+
+            if (data.avgResponseTime !== undefined) {
+                document.getElementById('avgResponseTime').textContent = data.avgResponseTime + ' ms';
+            }
+        };
+
+        socket.onclose = function() {
+            document.getElementById('connectionStatus').textContent = 'Disconnected. Reconnecting...';
+            setTimeout(connectWebSocket, 5000);
+        };
+
+        socket.onerror = function(error) {
+            document.getElementById('connectionStatus').textContent = 'Connection error. Reconnecting...';
+            socket.close();
+        };
+    }
+
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+
+        const k = 1024;
+        const dm = decimals < 0 ? 0 : decimals;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    document.addEventListener('DOMContentLoaded', connectWebSocket);
+</script>
+</body>
+</html>
